@@ -1,0 +1,5 @@
+n1= input("digite um numero: ")
+print(n1[0])
+print(n1[1])
+print(n1[2])
+print(n1[3])

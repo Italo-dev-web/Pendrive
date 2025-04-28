@@ -1,0 +1,294 @@
+// ==UserScript==
+// @name         Khan alpha
+// @version      2.2
+// @description  Exibe respostas da questão atual e anterior sem duplicação
+// @author       Caio Esdras
+// @match        https://pt.khanacademy.org/*
+// @grant        none
+// @namespace https://greasyfork.org/users/1064859
+// @downloadURL https://update.greasyfork.org/scripts/464560/Khan%20Respostas.user.js
+// @updateURL https://update.greasyfork.org/scripts/464560/Khan%20Respostas.meta.js
+// ==/UserScript==
+
+(function () {
+  const overlayHTML = `
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap" rel="stylesheet">
+    <div id="box">
+      <button class="main" id="accordian">☰</button>
+      <div class="main" id="box2">
+        <header><p class="header-text">Respostas Khan Academy</p></header>
+        <button onclick="location.reload()" class="inputans">Resetar</button>
+        <br>
+        <center><section><label id="ansHead">Respostas:</label></section></center>
+        <div id="ansBreak" class="answer-container"></div>
+        <section class="toggleclass"><label>M para esconder Menu</label></section>
+      </div>
+    </div>
+    <style>
+      body {
+        font-family: 'Roboto', sans-serif;
+      }
+      #box {
+        z-index: 9999;
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        width: 300px;
+        background-color: #333;
+        border-radius: 8px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+      }
+      #box2 {
+        padding: 20px;
+        color: #fff;
+      }
+      header {
+        margin-bottom: 15px;
+        text-align: center;
+      }
+      .header-text {
+        font-size: 16px;
+        font-weight: 500;
+        margin: 0;
+        padding-bottom: 10px;
+        border-bottom: 2px solid #ff6f61;
+      }
+      .main {
+        background-color: #444;
+        color: #fff;
+        border: none;
+        cursor: pointer;
+        border-radius: 5px;
+        padding: 10px;
+        width: 100%;
+        text-align: center;
+        font-size: 14px;
+        font-weight: 500;
+        transition: background-color 0.3s;
+      }
+      .main:hover {
+        background-color: #555;
+      }
+      .inputans {
+        background-color: #ff6f61;
+        color: white;
+        border: none;
+        cursor: pointer;
+        border-radius: 5px;
+        padding: 10px;
+        width: 100%;
+        font-size: 14px;
+        font-weight: 500;
+        transition: background-color 0.3s;
+      }
+      .inputans:hover {
+        background-color: #e65c50;
+      }
+      .answer-container {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .answer-item {
+        background-color: #222;
+        border-radius: 5px;
+        padding: 10px;
+        color: #fff;
+      }
+      .toggleclass {
+        text-align: center;
+        margin-top: 10px;
+      }
+      .toggleclass label {
+        color: #bbb;
+      }
+      .answer-header {
+        font-weight: bold;
+        margin-bottom: 5px;
+        color: #ff6f61;
+      }
+    </style>
+  `;
+
+  function get(x) { return document.getElementById(x); }
+
+  const overlay = document.createElement("div");
+  overlay.innerHTML = overlayHTML;
+  document.body.appendChild(overlay);
+
+  const acc = get("accordian");
+
+  acc.onclick = function() {
+    const panel = get("box2");
+    panel.style.display = panel.style.display === "block" ? "none" : "block";
+  }
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'm' || event.key === 'M') {
+      const panel = get("box2");
+      panel.style.display = panel.style.display === "block" ? "none" : "block";
+    }
+  });
+
+  'use strict';
+  window.loaded = false;
+
+  // Store answers by question ID and last question ID
+  const answersByQuestionId = {};
+  let lastQuestionId = null;
+
+  class Answer {
+    constructor(answer, type) {
+      this.body = answer;
+      this.type = type;
+    }
+
+    get isMultiChoice() {
+      return this.type === "multiple_choice";
+    }
+
+    get isFreeResponse() {
+      return this.type === "free_response";
+    }
+
+    get isExpression() {
+      return this.type === "expression";
+    }
+
+    get isDropdown() {
+      return this.type === "dropdown";
+    }
+
+    log() {
+      const answer = this.body;
+      answer.forEach((ans, index) => {
+        if (typeof ans === "string") {
+          if (ans.includes("web+graphie")) {
+            this.body[index] = "";
+            this.printImage(ans);
+          } else {
+            answer[index] = ans.replaceAll("$", "");
+          }
+        }
+      });
+    }
+  }
+
+  const originalFetch = window.fetch;
+  window.fetch = function () {
+    return originalFetch.apply(this, arguments).then(async (res) => {
+      if (res.url.includes("/getAssessmentItem")) {
+        const clone = res.clone();
+        const json = await clone.json();
+        const item = json.data.assessmentItem.item.itemData;
+        const question = JSON.parse(item).question;
+
+        const questionId = json.data.assessmentItem.item.id;
+        let answers = [];
+
+        Object.keys(question.widgets).forEach(widgetName => {
+          switch (widgetName.split(" ")[0]) {
+            case "numeric-input":
+              answers = [...answers, ...freeResponseAnswerFrom(question)];
+              break;
+            case "radio":
+              answers = [...answers, ...multipleChoiceAnswerFrom(question)];
+              break;
+            case "expression":
+              answers = [...answers, ...expressionAnswerFrom(question)];
+              break;
+            case "dropdown":
+              answers = [...answers, ...dropdownAnswerFrom(question)];
+              break;
+          }
+        });
+
+        // Save the previous answers before updating
+        if (lastQuestionId) {
+          answersByQuestionId[lastQuestionId] = answersByQuestionId[lastQuestionId] || [];
+          updateAnswers(answersByQuestionId[lastQuestionId], 'Resposta Anterior');
+        }
+
+        // Store answers for the current question
+        answersByQuestionId[questionId] = answers;
+
+        if (!window.loaded) {
+          console.clear();
+          window.loaded = true;
+        }
+
+        // Update the display with answers for the current and previous questions
+        const container = document.getElementById('ansBreak');
+        container.innerHTML = ''; // Clear previous answers
+
+        if (lastQuestionId) {
+          updateAnswers(answersByQuestionId[lastQuestionId], 'Resposta Atual');
+        }
+        updateAnswers(answers, 'Proxima Resposta');
+        lastQuestionId = questionId;
+      }
+
+      return res;
+    });
+  }
+
+  function updateAnswers(answerArray, headerText) {
+    const container = document.getElementById('ansBreak');
+    const header = document.createElement('div');
+    header.className = 'answer-header';
+    header.textContent = headerText;
+    container.appendChild(header);
+    answerArray.forEach(answer => {
+      const createPar = document.createElement('section');
+      createPar.innerHTML = answer;
+      createPar.className = 'answer-item';
+      container.appendChild(createPar);
+    });
+  }
+
+  function freeResponseAnswerFrom(question) {
+    return Object.values(question.widgets).flatMap(widget => {
+      if (widget.options?.answers) {
+        return widget.options.answers
+          .filter(answer => answer.status === "correct")
+          .map(answer => answer.value);
+      }
+      return [];
+    });
+  }
+
+  function multipleChoiceAnswerFrom(question) {
+    return Object.values(question.widgets).flatMap(widget => {
+      if (widget.options?.choices) {
+        return widget.options.choices
+          .filter(choice => choice.correct)
+          .map(choice => choice.content);
+      }
+      return [];
+    });
+  }
+
+  function expressionAnswerFrom(question) {
+    return Object.values(question.widgets).flatMap(widget => {
+      if (widget.options?.answerForms) {
+        return widget.options.answerForms
+          .filter(answer => Object.values(answer).includes("correct"))
+          .map(answer => answer.value);
+      }
+      return [];
+    });
+  }
+
+  function dropdownAnswerFrom(question) {
+    return Object.values(question.widgets).flatMap(widget => {
+      if (widget.options?.choices) {
+        return widget.options.choices
+          .filter(choice => choice.correct)
+          .map(choice => choice.content);
+      }
+      return [];
+    });
+  }
+})();

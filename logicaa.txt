@@ -1,0 +1,13 @@
+pais = np.array(["Maldivas", "Ilhas Maurício", "Áustria", "Jordânia", "Coreia do Norte"])
+area = np.array([300, 2040, 83879, 89342, 120538])
+população = np.array([521000, 1265000, 9000000, 11200000, 26200000])
+
+
+
+import numpy as np
+
+pais = np.array(["Honduras", "Áustria", "Bósnia e Herzegovina", "Camboja"])
+area = np.array([112492, 83879, 51197, 181035])
+população = np.array([10000000, 9000000, 3200000, 17000000])
+
+
